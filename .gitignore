@@ -1,0 +1,7 @@
+bin/
+*.exe
+
+.env
+*.env
+.DS_Store
+vendor/
