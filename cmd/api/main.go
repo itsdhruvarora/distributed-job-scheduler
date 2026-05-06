@@ -1,15 +1,14 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/itsdhruvarora/job-scheduler/config"
 	"github.com/itsdhruvarora/job-scheduler/internal/db"
 	"github.com/itsdhruvarora/job-scheduler/internal/job"
+	"github.com/itsdhruvarora/job-scheduler/internal/queue"
 )
 
 func main() {
@@ -21,40 +20,22 @@ func main() {
 	}
 	defer pool.Close()
 
+	q, err := queue.NewQueue(cfg.RedisURL)
+	if err != nil {
+		log.Fatalf("failed to connect to redis: %v", err)
+	}
+
 	store := job.NewStore(pool)
-
-	testJob := job.Job{
-		ID:          "test-001",
-		Type:        "send-email",
-		Payload:     []byte(`{"to": "test@gmail.com", "subject": "Hello"}`),
-		Status:      job.StatusPending,
-		Priority:    5,
-		MaxRetries:  3,
-		DependsOn:   []string{},
-		ScheduledAt: time.Now(),
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}
-
-	fmt.Println("About to create job...")
-	err = store.Create(context.Background(), testJob)
-	if err != nil {
-		log.Fatalf("failed to create job: %v", err)
-	}
-	fmt.Println("Job created successfully")
-	err = store.Create(context.Background(), testJob)
-	if err != nil {
-		log.Fatalf("failed to create job: %v", err)
-	}
-
-	fmt.Println("Job created successfully")
+	handler := job.NewHandler(store, q)
 
 	fmt.Println("Connected to database successfully")
+	fmt.Println("Connected to Redis successfully")
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "ok")
 	})
+	http.HandleFunc("/jobs", handler.CreateJob)
 
 	err = http.ListenAndServe(":"+cfg.Port, nil)
 	if err != nil {
