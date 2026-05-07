@@ -15,15 +15,15 @@ const (
 )
 
 type Job struct {
-	ID          string
-	Type        string
-	Payload     []byte
-	Status      Status
-	Priority    int
-	MaxRetries  int
-	Attempts    int
-	DependsOn   []string
-	ScheduledAt time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string    `json:"id"`
+	Type        string    `json:"type"`
+	Payload     []byte    `json:"payload"`
+	Status      Status    `json:"status"`
+	Priority    int       `json:"priority"`
+	MaxRetries  int       `json:"max_retries"`
+	Attempts    int       `json:"attempts"`
+	DependsOn   []string  `json:"depends_on"`
+	ScheduledAt time.Time `json:"scheduled_at"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

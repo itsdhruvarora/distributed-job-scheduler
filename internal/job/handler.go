@@ -66,3 +66,33 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request){
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"id": j.ID})
 }
+
+func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "missing job id", http.StatusBadRequest)
+		return
+	}
+
+	j, err := h.store.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(j)
+}
+
+func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+
+	jobs, err := h.store.List(r.Context(), status)
+	if err != nil {
+		http.Error(w, "failed to list jobs", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(jobs)
+}

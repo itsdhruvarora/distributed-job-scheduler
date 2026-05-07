@@ -36,9 +36,12 @@ func main() {
 		fmt.Fprintf(w, "ok")
 	})
 	http.HandleFunc("/jobs", handler.CreateJob)
+	http.HandleFunc("/job", handler.GetJob)
+	http.HandleFunc("/jobs/list", handler.ListJobs)
 
 	err = http.ListenAndServe(":"+cfg.Port, nil)
 	if err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
+
 }

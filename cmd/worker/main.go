@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/itsdhruvarora/job-scheduler/config"
@@ -28,14 +31,31 @@ func main() {
 
 	fmt.Println("Worker starting...")
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
 	w := worker.NewWorker(pool, q)
-	
-	ctx := context.Background()
+
+	go func() {
+		<-quit
+		fmt.Println("\nShutdown signal received, finishing current job...")
+		cancel()
+	}()
+
 	for {
-		err := w.ProcessNext(ctx)
-		if err != nil {
-			log.Printf("worker error: %v", err)
+		select {
+		case <-ctx.Done():
+			fmt.Println("Worker stopped gracefully")
+			return
+		default:
+			err := w.ProcessNext(ctx)
+			if err != nil {
+				log.Printf("worker error: %v", err)
+			}
+			time.Sleep(1 * time.Second)
 		}
-		time.Sleep(1 * time.Second)
 	}
 }
