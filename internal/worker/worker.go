@@ -3,7 +3,10 @@ package worker
 import (
 	"context"
 	"fmt"
+	"time"
 	"log"
+	"math"
+	"math/rand"
 
 	"github.com/itsdhruvarora/job-scheduler/internal/queue"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,21 +33,17 @@ func (w *Worker) ProcessNext(ctx context.Context) error {
 	log.Printf("processing job: %s", jobID)
 
 	_, err = w.db.Exec(ctx, `
-		UPDATE jobs SET status = 'RUNNING', updated_at = NOW()
+		UPDATE jobs
+		SET status = 'RUNNING', attempts = attempts + 1, updated_at = NOW()
 		WHERE id = $1
 	`, jobID)
 	if err != nil {
 		return fmt.Errorf("failed to update job status to running: %w", err)
 	}
 
-	// execute the job
 	err = w.execute(ctx, jobID)
-
 	if err != nil {
-		w.db.Exec(ctx, `
-			UPDATE jobs SET status = 'FAILED', updated_at = NOW()
-			WHERE id = $1
-		`, jobID)
+		w.handleFailure(ctx, jobID)
 		return fmt.Errorf("job %s failed: %w", jobID, err)
 	}
 
@@ -58,6 +57,38 @@ func (w *Worker) ProcessNext(ctx context.Context) error {
 
 	log.Printf("job %s completed successfully", jobID)
 	return nil
+}
+
+func (w *Worker) handleFailure(ctx context.Context, jobID string) {
+	var attempts, maxRetries int
+	err := w.db.QueryRow(ctx, `
+		SELECT attempts, max_retries FROM jobs WHERE id = $1
+	`, jobID).Scan(&attempts, &maxRetries)
+	if err != nil {
+		log.Printf("failed to get job retry info: %v", err)
+		return
+	}
+
+	if attempts >= maxRetries {
+		w.db.Exec(ctx, `
+			UPDATE jobs SET status = 'FAILED', updated_at = NOW()
+			WHERE id = $1
+		`, jobID)
+		log.Printf("job %s exhausted retries, moving to failed", jobID)
+		return
+	}
+
+	backoff := time.Duration(math.Pow(2, float64(attempts))) * time.Second
+	jitter := time.Duration(rand.Intn(1000)) * time.Millisecond
+	nextRun := time.Now().Add(backoff + jitter)
+
+	w.db.Exec(ctx, `
+		UPDATE jobs SET status = 'PENDING', scheduled_at = $1, updated_at = NOW()
+		WHERE id = $2
+	`, nextRun, jobID)
+
+	w.queue.Enqueue(ctx, jobID, 5, nextRun)
+	log.Printf("job %s failed, retrying at %v (attempt %d/%d)", jobID, nextRun, attempts, maxRetries)
 }
 
 func (w *Worker) execute(ctx context.Context, jobID string) error {
