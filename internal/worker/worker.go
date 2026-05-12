@@ -3,11 +3,12 @@ package worker
 import (
 	"context"
 	"fmt"
-	"time"
 	"log"
 	"math"
 	"math/rand"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/itsdhruvarora/job-scheduler/internal/queue"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -57,6 +58,7 @@ func (w *Worker) ProcessNext(ctx context.Context) error {
 
 	log.Printf("job %s completed successfully", jobID)
 	return nil
+
 }
 
 func (w *Worker) handleFailure(ctx context.Context, jobID string) {
@@ -71,10 +73,28 @@ func (w *Worker) handleFailure(ctx context.Context, jobID string) {
 
 	if attempts >= maxRetries {
 		w.db.Exec(ctx, `
-			UPDATE jobs SET status = 'FAILED', updated_at = NOW()
-			WHERE id = $1
-		`, jobID)
-		log.Printf("job %s exhausted retries, moving to failed", jobID)
+        UPDATE jobs SET status = 'FAILED', updated_at = NOW()
+        WHERE id = $1
+    `, jobID)
+
+		var payload []byte
+		var jobType string
+		w.db.QueryRow(ctx, `
+        SELECT payload, type FROM jobs WHERE id = $1
+    `, jobID).Scan(&payload, &jobType)
+
+		w.db.Exec(ctx, `
+        INSERT INTO dead_letter_queue (id, job_id, error, payload, job_type)
+        VALUES ($1, $2, $3, $4, $5)
+    `,
+			uuid.New().String(),
+			jobID,
+			"job exhausted all retries",
+			payload,
+			jobType,
+		)
+
+		log.Printf("job %s exhausted retries, moved to DLQ", jobID)
 		return
 	}
 
