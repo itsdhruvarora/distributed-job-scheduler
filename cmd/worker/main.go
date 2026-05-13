@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/itsdhruvarora/job-scheduler/config"
 	"github.com/itsdhruvarora/job-scheduler/internal/db"
 	"github.com/itsdhruvarora/job-scheduler/internal/queue"
@@ -43,6 +44,22 @@ func main() {
 		<-quit
 		fmt.Println("\nShutdown signal received, finishing current job...")
 		cancel()
+	}()
+
+	workerID := uuid.New().String()
+	fmt.Printf("Worker ID: %s\n", workerID)
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				q.SetHeartbeat(context.Background(), workerID)
+			}
+		}
 	}()
 
 	for {

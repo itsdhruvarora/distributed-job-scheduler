@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -50,4 +51,27 @@ func (q *Queue) Dequeue(ctx context.Context) (string, error) {
 		return "", nil
 	}
 	return result[0].Member.(string), nil
+}
+
+func (q *Queue) SetHeartbeat(ctx context.Context, workerID string) error {
+	err := q.client.Set(ctx, "worker:"+workerID, "alive", 30*time.Second).Err()
+	if err != nil {
+		return fmt.Errorf("failed to set heartbeat: %w", err)
+	}
+	return nil
+}
+
+func (q *Queue) GetActiveWorkers(ctx context.Context) ([]string, error) {
+	keys, err := q.client.Keys(ctx, "worker:*").Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workers: %w", err)
+	}
+
+	workers := []string{}
+	for _, key := range keys {
+		workerID := strings.TrimPrefix(key, "worker:")
+		workers = append(workers, workerID)
+	}
+
+	return workers, nil
 }
