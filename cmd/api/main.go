@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"github.com/itsdhruvarora/job-scheduler/config"
 	"github.com/itsdhruvarora/job-scheduler/internal/db"
 	"github.com/itsdhruvarora/job-scheduler/internal/job"
+	"github.com/itsdhruvarora/job-scheduler/internal/monitor"
 	"github.com/itsdhruvarora/job-scheduler/internal/queue"
 )
 
@@ -24,10 +26,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to redis: %v", err)
 	}
-
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	store := job.NewStore(pool)
 	handler := job.NewHandler(store, q)
-
+	m := monitor.NewMonitor(pool, q)
+	go m.Start(ctx)
 	fmt.Println("Connected to database successfully")
 	fmt.Println("Connected to Redis successfully")
 
