@@ -38,7 +38,8 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	w := worker.NewWorker(pool, q)
+	workerID := uuid.New().String()
+	w := worker.NewWorker(pool, q, workerID)
 
 	go func() {
 		<-quit
@@ -46,7 +47,6 @@ func main() {
 		cancel()
 	}()
 
-	workerID := uuid.New().String()
 	fmt.Printf("Worker ID: %s\n", workerID)
 
 	go func() {

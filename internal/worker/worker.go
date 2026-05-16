@@ -14,12 +14,13 @@ import (
 )
 
 type Worker struct {
+	id    string
 	db    *pgxpool.Pool
 	queue *queue.Queue
 }
 
-func NewWorker(db *pgxpool.Pool, q *queue.Queue) *Worker {
-	return &Worker{db: db, queue: q}
+func NewWorker(db *pgxpool.Pool, q *queue.Queue, id string) *Worker {
+	return &Worker{id: id, db: db, queue: q}
 }
 
 func (w *Worker) ProcessNext(ctx context.Context) error {
@@ -31,15 +32,41 @@ func (w *Worker) ProcessNext(ctx context.Context) error {
 		return nil
 	}
 
+	acquired, err := w.queue.AcquireLock(ctx, jobID, w.id)
+	if err != nil {
+		return fmt.Errorf("failed to acquire lock: %w", err)
+	}
+	if !acquired {
+		log.Printf("job %s already locked by another worker, skipping", jobID)
+		return nil
+	}
+	defer w.queue.ReleaseLock(ctx, jobID, w.id)
+
+	// renew lock every 15s while executing
+	lockCtx, cancelLock := context.WithCancel(ctx)
+	defer cancelLock()
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-lockCtx.Done():
+				return
+			case <-ticker.C:
+				w.queue.RenewLock(ctx, jobID, w.id)
+			}
+		}
+	}()
+
 	log.Printf("processing job: %s", jobID)
 
 	_, err = w.db.Exec(ctx, `
-		UPDATE jobs
+		UPDATE jobs 
 		SET status = 'RUNNING', attempts = attempts + 1, updated_at = NOW()
 		WHERE id = $1
 	`, jobID)
 	if err != nil {
-		return fmt.Errorf("failed to update job status to running: %w", err)
+		return fmt.Errorf("failed to update job to running: %w", err)
 	}
 
 	err = w.execute(ctx, jobID)
@@ -53,12 +80,11 @@ func (w *Worker) ProcessNext(ctx context.Context) error {
 		WHERE id = $1
 	`, jobID)
 	if err != nil {
-		return fmt.Errorf("failed to update job status to done: %w", err)
+		return fmt.Errorf("failed to update job to done: %w", err)
 	}
 
 	log.Printf("job %s completed successfully", jobID)
 	return nil
-
 }
 
 func (w *Worker) handleFailure(ctx context.Context, jobID string) {

@@ -75,3 +75,47 @@ func (q *Queue) GetActiveWorkers(ctx context.Context) ([]string, error) {
 
 	return workers, nil
 }
+
+func (q *Queue) AcquireLock(ctx context.Context, jobID string, workerID string) (bool, error) {
+	key := "lock:job:" + jobID
+	result, err := q.client.SetNX(ctx, key, workerID, 60*time.Second).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed t acquire lock: %w", err)
+	}
+
+	return result, nil
+}
+
+func (q *Queue) ReleaseLock(ctx context.Context, jobID string, workerID string) error {
+	key := "lock:job" + jobID
+	val, err := q.client.Get(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("failed to get lock: %w", err)
+	}
+
+	if val != workerID {
+		return fmt.Errorf("lock not owned by this worker")
+	}
+
+	err = q.client.Del(ctx, key).Err()
+	if err != nil {
+		return fmt.Errorf("failed to release lock: %w", err)
+	}
+	return nil
+}
+
+func (q *Queue) RenewLock(ctx context.Context, jobID string, workerID string) error {
+	key := "lock:job:" + jobID
+	val, err := q.client.Get(ctx, key).Result()
+	if err != nil {
+		return fmt.Errorf("lock not found: %w", err)
+	}
+	if val != workerID {
+		return fmt.Errorf("lock not owned by this worker")
+	}
+	err = q.client.Expire(ctx, key, 60*time.Second).Err()
+	if err != nil {
+		return fmt.Errorf("failed to renew lock: %w", err)
+	}
+	return nil
+}
