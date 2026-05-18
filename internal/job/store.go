@@ -17,8 +17,8 @@ func NewStore(db *pgxpool.Pool) *Store {
 
 func (s *Store) Create(ctx context.Context, j Job) error {
 	_, err := s.db.Exec(ctx, `
-        INSERT INTO jobs (id, type, payload, status, priority, max_retries, depends_on, scheduled_at, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        INSERT INTO jobs (id, type, payload, status, priority, max_retries, depends_on, scheduled_at, cron_expression, next_run_at, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     `,
 		j.ID,
 		j.Type,
@@ -28,6 +28,8 @@ func (s *Store) Create(ctx context.Context, j Job) error {
 		j.MaxRetries,
 		j.DependsOn,
 		j.ScheduledAt,
+		j.CronExpression,
+		j.NextRunAt,
 		j.CreatedAt,
 		j.UpdatedAt,
 	)

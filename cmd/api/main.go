@@ -11,6 +11,7 @@ import (
 	"github.com/itsdhruvarora/job-scheduler/internal/job"
 	"github.com/itsdhruvarora/job-scheduler/internal/monitor"
 	"github.com/itsdhruvarora/job-scheduler/internal/queue"
+	"github.com/itsdhruvarora/job-scheduler/internal/scheduler"
 )
 
 func main() {
@@ -31,6 +32,8 @@ func main() {
 	store := job.NewStore(pool)
 	handler := job.NewHandler(store, q)
 	m := monitor.NewMonitor(pool, q)
+	s := scheduler.NewScheduler(pool, q, store)
+	go s.Start(ctx)
 	go m.Start(ctx)
 	fmt.Println("Connected to database successfully")
 	fmt.Println("Connected to Redis successfully")

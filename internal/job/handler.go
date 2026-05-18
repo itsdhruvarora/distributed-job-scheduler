@@ -3,10 +3,12 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/robfig/cron/v3"
 )
 
 type Handler struct {
@@ -18,36 +20,49 @@ type Queue interface {
 	Enqueue(ctx context.Context, jobID string, priority int, scheduledAt time.Time) error
 }
 
-func NewHandler(store *Store, queue Queue) *Handler{
-	return &Handler{store : store , queue: queue}
+func NewHandler(store *Store, queue Queue) *Handler {
+	return &Handler{store: store, queue: queue}
 }
 
 type CreateJobRequest struct {
-	Type      string          `json:"type"`
-	Payload   json.RawMessage `json:"payload"`
-	Priority  int             `json:"priority"`
-	DependsOn []string        `json:"depends_on"`	
+	Type           string          `json:"type"`
+	Payload        json.RawMessage `json:"payload"`
+	Priority       int             `json:"priority"`
+	DependsOn      []string        `json:"depends_on"`
+	CronExpression *string         `json:"cron_expression"`
 }
 
-func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request){
+func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	var req CreateJobRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w,"invalid request body", http.StatusBadRequest)
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
+	log.Printf("cron_expression received: %v", req.CronExpression)
 
-	j := Job {
-		ID: uuid.New().String(),
-		Type: req.Type,
-		Payload: []byte(req.Payload),
-		Status:      StatusPending,
-		Priority:    req.Priority,
-		MaxRetries:  3,
-		DependsOn:   req.DependsOn,
-		ScheduledAt: time.Now(),
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+	j := Job{
+		ID:             uuid.New().String(),
+		Type:           req.Type,
+		Payload:        []byte(req.Payload),
+		Status:         StatusPending,
+		Priority:       req.Priority,
+		MaxRetries:     3,
+		DependsOn:      req.DependsOn,
+		CronExpression: req.CronExpression,
+		ScheduledAt:    time.Now(),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+
+	if req.CronExpression != nil {
+		schedule, err := cron.ParseStandard(*req.CronExpression)
+		if err != nil {
+			http.Error(w, "invalid cron expression", http.StatusBadRequest)
+			return
+		}
+		nextRun := schedule.Next(time.Now())
+		j.NextRunAt = &nextRun
 	}
 
 	err = h.store.Create(r.Context(), j)
