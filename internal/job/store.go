@@ -75,7 +75,7 @@ func (s *Store) List(ctx context.Context, status string) ([]Job, error) {
 	args := []any{}
 
 	if status != "" {
-		query += "WHERE STATUS = $1"
+		query += "WHERE status = $1"
 		args = append(args, status)
 	}
 
@@ -110,4 +110,66 @@ func (s *Store) List(ctx context.Context, status string) ([]Job, error) {
 	}
 
 	return jobs, nil
+}
+
+func (s *Store) UnblockDependents(ctx context.Context, completedJobID string) ([]Job, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, priority, scheduled_at
+		FROM jobs
+		WHERE status = 'WAITING'
+		AND $1 = ANY(depends_on)
+	`, completedJobID)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to find dependents: %w", err)
+	}
+
+	defer rows.Close()
+
+	var unblocked []Job
+	for rows.Next() {
+		var j Job
+		err := rows.Scan(&j.ID, &j.Priority, &j.ScheduledAt)
+		if err != nil {
+			continue
+		}
+
+		var blockers int
+		err = s.db.QueryRow(ctx, `
+			SELECT COUNT(*) FROM jobs
+			WHERE id = ANY(
+				SELECT unnest(depends_on) FROM jobs WHERE id = $1
+			)
+			AND status != 'DONE'
+		`, j.ID).Scan(&blockers)
+
+		if err != nil {
+			continue
+		}
+
+		if blockers == 0 {
+			s.db.Exec(ctx, `
+				UPDATE jobs SET status = 'PENDING', updated_at = NOW()
+				WHERE id = $1
+			`, j.ID)
+			unblocked = append(unblocked, j)
+		}
+	}
+
+	return unblocked, nil
+}
+func (s *Store) CountBlockers(ctx context.Context, dependsOn []string) (int, error) {
+    if len(dependsOn) == 0 {
+        return 0, nil
+    }
+    var count int
+    err := s.db.QueryRow(ctx, `
+        SELECT COUNT(*) FROM jobs
+        WHERE id = ANY($1)
+        AND status != 'DONE'
+    `, dependsOn).Scan(&count)
+    if err != nil {
+        return 0, fmt.Errorf("failed to count blockers: %w", err)
+    }
+    return count, nil
 }

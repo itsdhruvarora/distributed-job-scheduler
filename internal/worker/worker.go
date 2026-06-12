@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/itsdhruvarora/job-scheduler/internal/job"
 	"github.com/itsdhruvarora/job-scheduler/internal/queue"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,10 +18,11 @@ type Worker struct {
 	id    string
 	db    *pgxpool.Pool
 	queue *queue.Queue
+	store *job.Store
 }
 
-func NewWorker(db *pgxpool.Pool, q *queue.Queue, id string) *Worker {
-	return &Worker{id: id, db: db, queue: q}
+func NewWorker(db *pgxpool.Pool, q *queue.Queue, store *job.Store, id string) *Worker {
+	return &Worker{id: id, db: db, queue: q, store: store}
 }
 
 func (w *Worker) ProcessNext(ctx context.Context) error {
@@ -84,6 +86,17 @@ func (w *Worker) ProcessNext(ctx context.Context) error {
 	}
 
 	log.Printf("job %s completed successfully", jobID)
+
+	unblocked, err := w.store.UnblockDependents(ctx, jobID)
+	if err != nil {
+		log.Printf("failed to unblock dependents: %v", err)
+		return nil
+	}
+
+	for _, j := range unblocked {
+		w.queue.Enqueue(ctx, j.ID, j.Priority, j.ScheduledAt)
+		log.Printf("unblocked job %s", j.ID)
+	}
 	return nil
 }
 

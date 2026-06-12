@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/itsdhruvarora/job-scheduler/config"
 	"github.com/itsdhruvarora/job-scheduler/internal/db"
+	"github.com/itsdhruvarora/job-scheduler/internal/job"
 	"github.com/itsdhruvarora/job-scheduler/internal/queue"
 	"github.com/itsdhruvarora/job-scheduler/internal/worker"
 )
@@ -39,7 +40,8 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	workerID := uuid.New().String()
-	w := worker.NewWorker(pool, q, workerID)
+	store := job.NewStore(pool)
+	w := worker.NewWorker(pool, q, store, workerID)
 
 	go func() {
 		<-quit

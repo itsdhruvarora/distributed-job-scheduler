@@ -41,11 +41,19 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("cron_expression received: %v", req.CronExpression)
 
+	status := StatusPending
+	if len(req.DependsOn) > 0 {
+		blockers, err := h.store.CountBlockers(r.Context(), req.DependsOn)
+		if err != nil || blockers > 0 {
+			status = StatusWaiting
+		}
+	}
+
 	j := Job{
 		ID:             uuid.New().String(),
 		Type:           req.Type,
 		Payload:        []byte(req.Payload),
-		Status:         StatusPending,
+		Status:         status,
 		Priority:       req.Priority,
 		MaxRetries:     3,
 		DependsOn:      req.DependsOn,
@@ -71,10 +79,12 @@ func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.queue.Enqueue(r.Context(), j.ID, j.Priority, j.ScheduledAt)
-	if err != nil {
-		http.Error(w, "failed to enqueue job", http.StatusInternalServerError)
-		return
+	if status == StatusPending {
+		err = h.queue.Enqueue(r.Context(), j.ID, j.Priority, j.ScheduledAt)
+		if err != nil {
+			http.Error(w, "failed to enqueue job", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
